@@ -11,10 +11,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Configurar OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Configurar OpenAI (solo si hay API key)
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  });
+}
 
 // Prompt de Aina
 const masterPrompt = `Eres Aina, un sistema de inteligencia artificial avanzada diseñado para asistir exclusivamente a psicólogos/as en ejercicio o formación avanzada. Tu función principal es potenciar el trabajo clínico mediante análisis especializado, formulación diagnóstica, recomendaciones terapéuticas e intervención estratégica adaptada a la orientación teórica del profesional.
@@ -100,12 +103,17 @@ const psychologistInfo = new Map();
 // Función para generar respuesta con IA
 async function generateResponse(userInput, psychologistId = null) {
   try {
-    let systemPrompt = masterPrompt;
-    
     // Si es la primera vez del psicólogo, enviar mensaje de bienvenida
     if (psychologistId && !psychologistInfo.has(psychologistId)) {
       return getWelcomeMessage();
     }
+
+    // Si no hay OpenAI configurado, devolver mensaje de error
+    if (!openai) {
+      return 'Lo siento, el servicio de IA no está configurado. Por favor, contacta al administrador.';
+    }
+
+    let systemPrompt = masterPrompt;
 
     // Agregar información personalizada del psicólogo si existe
     if (psychologistId && psychologistInfo.has(psychologistId)) {
@@ -136,6 +144,11 @@ async function generateResponse(userInput, psychologistId = null) {
 // Función para transcribir audio con Whisper
 async function transcribeAudio(audioBuffer) {
   try {
+    if (!openai) {
+      console.error('OpenAI no está configurado para transcripción');
+      return null;
+    }
+    
     const response = await openai.audio.transcriptions.create({
       file: audioBuffer,
       model: 'whisper-1',
@@ -181,17 +194,7 @@ async function sendWhatsAppMessage(to, message) {
 
 // Función para obtener mensaje de bienvenida
 function getWelcomeMessage() {
-  return `Te doy la bienvenida a Aina, tu ecosistema clínico inteligente. Con herramientas éticas, dinámicas y especializadas, potenciamos tu análisis, optimizamos tu tiempo y fortalecemos tu impacto terapéutico en cada etapa del proceso clínico.
-
-Para personalizar mis intervenciones, necesito que me proporciones:
-
-1. Tu nombre completo
-2. Tu especialidad profesional (Clínica, Educativa, Laboral, Jurídica)
-3. Tu orientación terapéutica (TCC, ACT, Psicodinámica, Sistémica, Humanista, Integrativa)
-
-Ejemplo: "Soy María González, especialidad Clínica, orientación TCC"
-
-Una vez que me proporciones esta información, podré adaptar todas mis respuestas a tu perfil profesional y estilo de trabajo.`;
+  return `¡Hola! Soy Aina, tu asistente.\n¿Cómo te llamas y cuál es tu especialidad?\nPuedes responder por texto o enviarme una nota de voz.`;
 }
 
 // Función para manejar información del psicólogo
