@@ -78,8 +78,12 @@ app.use('*', (req, res) => {
 // Iniciar servidor
 const startServer = async () => {
   try {
-    // Conectar a la base de datos
-    await connectDB();
+    // Conectar a la base de datos (opcional)
+    if (process.env.DATABASE_URL || process.env.MONGODB_URI) {
+      await connectDB();
+    } else {
+      console.log('⚠️ No se configuró base de datos - funcionando en modo sin persistencia');
+    }
     
     app.listen(PORT, () => {
       console.log(`🚀 Servidor iniciado en puerto ${PORT}`);

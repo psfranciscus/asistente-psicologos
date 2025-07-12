@@ -237,6 +237,12 @@ async function handleVoiceMessage(from, voice, timestamp) {
 // Función para guardar mensaje en base de datos
 async function saveMessageToDatabase(from, type, input, response, timestamp) {
   try {
+    // Solo guardar si hay conexión a base de datos
+    if (!process.env.DATABASE_URL && !process.env.MONGODB_URI) {
+      console.log(`💾 Mensaje registrado (sin persistencia): ${from}`);
+      return;
+    }
+    
     // Buscar conversación existente o crear nueva
     let conversation = await Conversation.findOne({ psychologistId: from });
     
@@ -259,6 +265,7 @@ async function saveMessageToDatabase(from, type, input, response, timestamp) {
     console.log(`💾 Mensaje guardado en base de datos para ${from}`);
   } catch (error) {
     console.error('Error guardando mensaje en base de datos:', error);
+    console.log(`💾 Mensaje registrado (error DB): ${from}`);
   }
 }
 
