@@ -3,6 +3,8 @@ const cors = require('cors');
 const axios = require('axios');
 const OpenAI = require('openai');
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -220,6 +222,41 @@ function handlePsychologistInfo(from, text) {
   }
 }
 
+// Función para descargar el audio de WhatsApp
+async function downloadWhatsAppMedia(mediaId) {
+  try {
+    // Obtener URL del archivo
+    const mediaResponse = await axios.get(
+      `https://graph.facebook.com/v18.0/${mediaId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`
+        }
+      }
+    );
+    const mediaUrl = mediaResponse.data.url;
+    // Descargar archivo
+    const fileResponse = await axios.get(mediaUrl, {
+      headers: {
+        'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`
+      },
+      responseType: 'arraybuffer'
+    });
+    // Guardar archivo temporal
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    const fileName = `${mediaId}_${Date.now()}.ogg`;
+    const filePath = path.join(uploadDir, fileName);
+    fs.writeFileSync(filePath, fileResponse.data);
+    return filePath;
+  } catch (error) {
+    console.error('Error descargando archivo de WhatsApp:', error.message);
+    return null;
+  }
+}
+
 // Webhook de WhatsApp
 app.post('/api/whatsapp/webhook', async (req, res) => {
   try {
@@ -252,12 +289,27 @@ app.post('/api/whatsapp/webhook', async (req, res) => {
           }
         } else if (message.type === 'audio' || message.type === 'voice') {
           console.log(`🎤 Procesando audio/voz`);
-          
-          // Por ahora, responder que procesaremos el audio
-          await sendWhatsAppMessage(from, 'He recibido tu nota de voz. Estoy procesando el audio para transcribirlo y generar una respuesta. Por favor, espera un momento.');
-          
-          // Aquí implementarías la descarga y transcripción del audio
-          // Por simplicidad, por ahora solo confirmamos recepción
+          // Descargar y transcribir
+          const mediaId = message.audio?.id || message.voice?.id;
+          if (!mediaId) {
+            await sendWhatsAppMessage(from, 'No pude obtener el audio. Por favor, intenta de nuevo.');
+            return;
+          }
+          const audioFile = await downloadWhatsAppMedia(mediaId);
+          if (!audioFile) {
+            await sendWhatsAppMessage(from, 'No pude descargar el audio. Por favor, intenta de nuevo.');
+            return;
+          }
+          const transcribedText = await transcribeAudio(fs.createReadStream(audioFile));
+          // Borrar archivo temporal
+          fs.unlinkSync(audioFile);
+          if (!transcribedText) {
+            await sendWhatsAppMessage(from, 'No pude entender la nota de voz. Por favor, intenta grabar de nuevo o envía un mensaje de texto.');
+            return;
+          }
+          console.log(`🎤 Voz transcrita: "${transcribedText}"`);
+          const response = await generateResponse(transcribedText, from);
+          await sendWhatsAppMessage(from, response);
         } else {
           await sendWhatsAppMessage(from, 'Lo siento, solo puedo procesar mensajes de texto y notas de voz por el momento.');
         }
