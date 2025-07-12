@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const WhatsAppService = require('../services/whatsappService');
 const VoiceService = require('../services/voiceService');
 const AIService = require('../services/aiService');
+const Conversation = require('../models/Conversation');
 
 // Configuración de multer para archivos de audio
 const storage = multer.diskStorage({
@@ -236,14 +237,26 @@ async function handleVoiceMessage(from, voice, timestamp) {
 // Función para guardar mensaje en base de datos
 async function saveMessageToDatabase(from, type, input, response, timestamp) {
   try {
-    // Aquí implementarías la lógica para guardar en MongoDB
-    console.log(`💾 Guardando mensaje en base de datos:`, {
-      from,
+    // Buscar conversación existente o crear nueva
+    let conversation = await Conversation.findOne({ psychologistId: from });
+    
+    if (!conversation) {
+      conversation = new Conversation({
+        psychologistId: from,
+        messages: []
+      });
+    }
+    
+    // Agregar mensaje a la conversación
+    conversation.messages.push({
       type,
       input,
       response,
-      timestamp
+      timestamp: new Date(timestamp * 1000)
     });
+    
+    await conversation.save();
+    console.log(`💾 Mensaje guardado en base de datos para ${from}`);
   } catch (error) {
     console.error('Error guardando mensaje en base de datos:', error);
   }

@@ -6,6 +6,9 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 require('dotenv').config();
 
+// Conectar a la base de datos
+const connectDB = require('./utils/database');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -17,7 +20,7 @@ app.use(compression());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://tu-dominio.com'] 
-    : [http://localhost:3000'', 'http://localhost:3001'],
+    : ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true
 }));
 
@@ -73,10 +76,22 @@ app.use('*', (req, res) => {
 });
 
 // Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
-  console.log(`📱 Asistente de WhatsApp para Psicólogos`);
-  console.log(`🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-});
+const startServer = async () => {
+  try {
+    // Conectar a la base de datos
+    await connectDB();
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
+      console.log(`📱 Asistente de WhatsApp para Psicólogos`);
+      console.log(`🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+    });
+  } catch (error) {
+    console.error('❌ Error iniciando servidor:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
 
 module.exports = app; 
