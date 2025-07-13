@@ -99,33 +99,42 @@ PRINCIPIOS ÉTICOS INVARIABLES
 • No accedes ni compartes datos personales como correos o identificaciones.
 • Siempre utilizas lenguaje técnico, ético y profesional.`;
 
-// Almacenamiento temporal de información del psicólogo
-const psychologistInfo = new Map();
+// Almacenamiento temporal de información del usuario
+const userInfo = new Map();
+
+// Función para obtener mensaje de bienvenida
+function getWelcomeMessage() {
+  return '¿En qué puedo ayudarte? Puedes contarme tu caso o consulta por texto o nota de voz.';
+}
+
+// Función para guardar el nombre del usuario
+function saveUserName(userId, text) {
+  // Buscar el nombre en el texto (ej: "Soy Ana" o solo "Ana")
+  let name = null;
+  const match = text.match(/soy\s+([a-záéíóúüñ\s]+)/i);
+  if (match) {
+    name = match[1].trim();
+  } else {
+    // Si solo envía el nombre
+    name = text.trim();
+  }
+  if (name) {
+    userInfo.set(userId, { name });
+    return `¡Gracias, ${name}! Puedes contarme lo que necesites.`;
+  } else {
+    return 'No entendí tu nombre. ¿Podrías repetirlo?';
+  }
+}
 
 // Función para generar respuesta con IA
-async function generateResponse(userInput, psychologistId = null) {
+async function generateResponse(userInput, userId = null) {
   try {
-    // Si es la primera vez del psicólogo, enviar mensaje de bienvenida
-    if (psychologistId && !psychologistInfo.has(psychologistId)) {
-      return getWelcomeMessage();
-    }
-
-    // Si no hay OpenAI configurado, devolver mensaje de error
-    if (!openai) {
-      return 'Lo siento, el servicio de IA no está configurado. Por favor, contacta al administrador.';
-    }
-
     let systemPrompt = masterPrompt;
-
-    // Agregar información personalizada del psicólogo si existe
-    if (psychologistId && psychologistInfo.has(psychologistId)) {
-      const info = psychologistInfo.get(psychologistId);
-      systemPrompt += `\n\nINFORMACIÓN DEL PSICÓLOGO:
-      - Nombre: ${info.name}
-      - Especialidad: ${info.specialty}
-      - Orientación terapéutica: ${info.orientation}`;
+    // Personalizar con el nombre si lo tenemos
+    if (userId && userInfo.has(userId)) {
+      const info = userInfo.get(userId);
+      systemPrompt += `\n\nNombre del usuario: ${info.name}`;
     }
-
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4',
       messages: [
@@ -135,7 +144,6 @@ async function generateResponse(userInput, psychologistId = null) {
       max_tokens: 800,
       temperature: 0.3
     });
-
     return completion.choices[0].message.content.trim();
   } catch (error) {
     console.error('Error generando respuesta IA:', error.message);
@@ -194,34 +202,6 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
-// Función para obtener mensaje de bienvenida
-function getWelcomeMessage() {
-  return `¡Hola! Soy Aina, tu asistente.\n¿Cómo te llamas y cuál es tu especialidad?\nPuedes responder por texto o enviarme una nota de voz.`;
-}
-
-// Función para manejar información del psicólogo
-function handlePsychologistInfo(from, text) {
-  try {
-    const nameMatch = text.match(/soy\s+([^,]+)/i);
-    const specialtyMatch = text.match(/especialidad\s+([^,]+)/i);
-    const orientationMatch = text.match(/orientación\s+([^,]+)/i);
-    
-    if (nameMatch && specialtyMatch && orientationMatch) {
-      const name = nameMatch[1].trim();
-      const specialty = specialtyMatch[1].trim();
-      const orientation = orientationMatch[1].trim();
-      
-      psychologistInfo.set(from, { name, specialty, orientation });
-      return 'Información guardada correctamente. A partir de ahora, todas mis respuestas estarán adaptadas a tu perfil profesional.';
-    } else {
-      return 'Por favor, proporciona la información en el formato: "Soy [Nombre], especialidad [Clínica/Educativa/Laboral/Jurídica], orientación [TCC/ACT/Psicodinámica/Sistémica/Humanista/Integrativa]"';
-    }
-  } catch (error) {
-    console.error('Error procesando información del psicólogo:', error);
-    return 'Error procesando la información. Por favor, intenta de nuevo.';
-  }
-}
-
 // Función para descargar el audio de WhatsApp
 async function downloadWhatsAppMedia(mediaId) {
   try {
@@ -257,64 +237,58 @@ async function downloadWhatsAppMedia(mediaId) {
   }
 }
 
+// Mensaje de error simple
+function getErrorMessage() {
+  return 'Lo siento, no pude procesar tu mensaje. Intenta de nuevo.';
+}
+
 // Webhook de WhatsApp
 app.post('/api/whatsapp/webhook', async (req, res) => {
   try {
     const { body } = req;
-    
     if (body.object === 'whatsapp_business_account') {
       const entry = body.entry[0];
       const changes = entry.changes[0];
       const value = changes.value;
-      
       if (value.messages && value.messages.length > 0) {
         const message = value.messages[0];
         const from = message.from;
-        
         console.log(`📱 Mensaje recibido de ${from}:`, message);
-        
-        // Procesar mensaje según el tipo
         if (message.type === 'text') {
           const text = message.text.body;
-          console.log(`📝 Procesando texto: "${text}"`);
-          
-          // Verificar si es información del psicólogo
-          if (text.toLowerCase().includes('soy') && (text.toLowerCase().includes('especialidad') || text.toLowerCase().includes('orientación'))) {
-            const response = handlePsychologistInfo(from, text);
-            await sendWhatsAppMessage(from, response);
-          } else {
-            // Generar respuesta usando IA
+          try {
             const response = await generateResponse(text, from);
             await sendWhatsAppMessage(from, response);
+          } catch (e) {
+            await sendWhatsAppMessage(from, getErrorMessage());
           }
         } else if (message.type === 'audio' || message.type === 'voice') {
-          console.log(`🎤 Procesando audio/voz`);
-          // Descargar y transcribir
           const mediaId = message.audio?.id || message.voice?.id;
           if (!mediaId) {
-            await sendWhatsAppMessage(from, 'No pude obtener el audio. Por favor, intenta de nuevo.');
-            return;
+            await sendWhatsAppMessage(from, getErrorMessage());
+            return res.status(200).json({ status: 'ok' });
           }
           const audioFile = await downloadWhatsAppMedia(mediaId);
           if (!audioFile) {
-            await sendWhatsAppMessage(from, 'No pude descargar el audio. Por favor, intenta de nuevo.');
-            return;
+            await sendWhatsAppMessage(from, getErrorMessage());
+            return res.status(200).json({ status: 'ok' });
           }
           const transcribedText = await transcribeAudio(fs.createReadStream(audioFile));
-          // Borrar archivo temporal
           fs.unlinkSync(audioFile);
-          if (!transcribedText) {
-            await sendWhatsAppMessage(from, 'No pude entender la nota de voz. Por favor, intenta grabar de nuevo o envía un mensaje de texto.');
-            return;
+          if (!transcribedText || transcribedText.trim().length < 2) {
+            await sendWhatsAppMessage(from, getErrorMessage());
+            return res.status(200).json({ status: 'ok' });
           }
-          console.log(`🎤 Voz transcrita: "${transcribedText}"`);
-          const response = await generateResponse(transcribedText, from);
-          await sendWhatsAppMessage(from, response);
+          try {
+            const response = await generateResponse(transcribedText, from);
+            await sendWhatsAppMessage(from, response);
+          } catch (e) {
+            await sendWhatsAppMessage(from, getErrorMessage());
+          }
         } else {
-          await sendWhatsAppMessage(from, 'Lo siento, solo puedo procesar mensajes de texto y notas de voz por el momento.');
+          await sendWhatsAppMessage(from, getErrorMessage());
         }
       }
-      
       res.status(200).json({ status: 'ok' });
     } else {
       res.status(404).json({ error: 'Not Found' });
